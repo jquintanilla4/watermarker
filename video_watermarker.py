@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
 Simple Video Watermarker
-Adds a two-line text watermark to videos with 30% opacity covering half the screen.
+Adds a centered two-line text watermark at ~10% opacity over the frame.
 """
 
 import cv2
 import numpy as np
 import os
+import math
 from PIL import Image, ImageDraw, ImageFont
 import inquirer
+
+# Resolve paths relative to this script, not the current working directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def validate_video_path(answers, current):
@@ -73,7 +77,7 @@ def process_directory(directory_path, text_line1, text_line2):
 
 def get_unique_output_path(base_name):
     """Generate a unique output path by appending '_copy' if file already exists."""
-    output_dir = "output_videos"
+    output_dir = os.path.join(SCRIPT_DIR, "output_videos")
     base_output_path = os.path.join(output_dir, f"{base_name}_watermarked.mp4")
     
     # If file doesn't exist, return the original path
@@ -104,16 +108,33 @@ def create_watermark_overlay(frame_width, frame_height, text_line1, text_line2):
     watermark_width = frame_width
     watermark_height = frame_height
     
-    # Try to use a system font, fallback to default if not available
-    try:
-        # Triple the previous font size for greater visibility
-        font_size = max(60, min((watermark_width // 5), (watermark_height // 6)))
-        font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", font_size)
-    except:
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-        except:
-            font = ImageFont.load_default()
+    # Determine font size up-front
+    font_size = max(60, min((watermark_width // 5), (watermark_height // 6)))
+
+    # Try common cross-platform font locations; fallback to default if none found
+    font_candidates = [
+        # macOS
+        "/System/Library/Fonts/Arial.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        # Linux
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        # Windows
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+    ]
+    font = None
+    for path in font_candidates:
+        if os.path.exists(path):
+            try:
+                font = ImageFont.truetype(path, font_size)
+                break
+            except Exception:
+                pass
+    if font is None:
+        font = ImageFont.load_default()
     
     # Calculate text positioning
     # Get text dimensions
@@ -126,7 +147,8 @@ def create_watermark_overlay(frame_width, frame_height, text_line1, text_line2):
     text2_height = bbox2[3] - bbox2[1]
     
     # Center the text in the watermark area
-    total_text_height = text1_height + text2_height + 10  # 10px spacing
+    spacing = 10 if (text_line1.strip() and text_line2.strip()) else 0
+    total_text_height = text1_height + text2_height + spacing
     start_y = (watermark_height - total_text_height) // 2
     
     # Position for line 1
@@ -135,7 +157,7 @@ def create_watermark_overlay(frame_width, frame_height, text_line1, text_line2):
     
     # Position for line 2
     x2 = (watermark_width - text2_width) // 2
-    y2 = start_y + text1_height + 10
+    y2 = start_y + text1_height + spacing
     
     # Draw text with white color and 10% opacity
     text_color = (255, 255, 255, 26)  # White with alpha (10% of 255 = 26)
@@ -154,11 +176,13 @@ def add_watermark_to_video(video_path, text_line1, text_line2):
         print("Error: Could not open video file.")
         return False
     
-    # Get video properties
+    # Get video properties (guard against 0/NaN values)
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    if (isinstance(fps, float) and math.isnan(fps)) or fps <= 0:
+        fps = 30.0
+    total_frames = int((cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) or 0)
     
     print(f"\nVideo info:")
     print(f"Resolution: {frame_width}x{frame_height}")
@@ -170,17 +194,24 @@ def add_watermark_to_video(video_path, text_line1, text_line2):
     output_path = get_unique_output_path(base_name)
     
     # Create output directory if it doesn't exist
-    os.makedirs("output_videos", exist_ok=True)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     # Define codec and create VideoWriter
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
+    if not out.isOpened():
+        print("Error: Could not open VideoWriter with codec 'mp4v'.")
+        cap.release()
+        return False
     
-    # Create watermark overlay
+    # Create watermark overlay once and prepare per-pixel alpha compositing
     watermark_overlay = create_watermark_overlay(frame_width, frame_height, text_line1, text_line2)
-    
-    # Convert PIL image to OpenCV format
-    watermark_cv = cv2.cvtColor(np.array(watermark_overlay), cv2.COLOR_RGBA2BGRA)
+    overlay_rgba = np.array(watermark_overlay)
+    overlay_bgr = cv2.cvtColor(overlay_rgba[:, :, :3], cv2.COLOR_RGB2BGR)
+    overlay_alpha = (overlay_rgba[:, :, 3].astype(np.float32) / 255.0)
+    # Optional global strength multiplier (1.0 uses overlay alpha as-is)
+    strength = 1.0
+    mask = np.clip(overlay_alpha * strength, 0.0, 1.0)
     
     print(f"\nProcessing video...")
     frame_count = 0
@@ -190,21 +221,19 @@ def add_watermark_to_video(video_path, text_line1, text_line2):
         if not ret:
             break
         
-        # Convert frame to BGRA for alpha blending
-        frame_bgra = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
-        
-        # Apply watermark with 10% opacity
-        alpha = 0.1
-        blended = cv2.addWeighted(frame_bgra, 1.0, watermark_cv, alpha, 0)
-        
-        # Convert back to BGR for video writer
-        final_frame = cv2.cvtColor(blended, cv2.COLOR_BGRA2BGR)
+        # Per-pixel alpha blend the overlay onto the frame in BGR space
+        frame_float = frame.astype(np.float32)
+        overlay_float = overlay_bgr.astype(np.float32)
+        # Blend each color channel using the same alpha mask
+        for c in range(3):
+            frame_float[:, :, c] = frame_float[:, :, c] * (1.0 - mask) + overlay_float[:, :, c] * mask
+        final_frame = np.clip(frame_float, 0, 255).astype(np.uint8)
         
         # Write frame
         out.write(final_frame)
         
         frame_count += 1
-        if frame_count % 30 == 0:  # Progress update every 30 frames
+        if total_frames > 0 and frame_count % 30 == 0:  # Progress update every 30 frames
             progress = (frame_count / total_frames) * 100
             print(f"Progress: {progress:.1f}%")
     
@@ -214,6 +243,47 @@ def add_watermark_to_video(video_path, text_line1, text_line2):
     
     print(f"\nWatermarked video saved as: {output_path}")
     return True
+
+
+def _normalize_pasted_path(raw_path: str) -> str:
+    if not isinstance(raw_path, str):
+        return ""
+    # Trim leading/trailing whitespace
+    s = raw_path.strip()
+    # Remove any surrounding quotes and any stray quote chars
+    if (len(s) >= 2) and ((s[0] == s[-1]) and s[0] in ('"', "'")):
+        s = s[1:-1]
+    s = s.replace('"', '').replace("'", '')
+    # Convert Finder-style escaped spaces to real spaces
+    s = s.replace('\\ ', ' ')
+    # Keep spaces in path; just expand ~ and env vars
+    s = os.path.expanduser(os.path.expandvars(s))
+    return s
+
+
+def prompt_for_path(processing_mode: str) -> str:
+    """Prompt the user for a path using standard input for robust paste behavior."""
+    while True:
+        if processing_mode == 'single':
+            raw = input("[?] Enter the path to your video file: ")
+        else:
+            raw = input("[?] Enter the path to the directory containing videos: ")
+
+        path = _normalize_pasted_path(raw)
+        if not path:
+            print("Please enter a non-empty path.")
+            continue
+
+        if processing_mode == 'single':
+            if not os.path.exists(path) or not os.path.isfile(path):
+                print("File not found. Please enter a valid path to a video file.")
+                continue
+        else:
+            if not os.path.exists(path) or not os.path.isdir(path):
+                print("Directory not found. Please enter a valid directory path.")
+                continue
+
+        return path
 
 
 def main():
@@ -242,54 +312,17 @@ def main():
         
         processing_mode = mode_answer['processing_mode']
         
-        # Get path based on mode
-        if processing_mode == 'single':
-            path_questions = [
-                inquirer.Path(
-                    'target_path',
-                    message='Enter the path to your video file',
-                    path_type=inquirer.Path.FILE,
-                    validate=validate_video_path,
-                    exists=True
-                )
-            ]
-        else:  # directory mode
-            path_questions = [
-                inquirer.Path(
-                    'target_path',
-                    message='Enter the path to the directory containing videos',
-                    path_type=inquirer.Path.DIRECTORY,
-                    validate=validate_directory_path,
-                    exists=True
-                )
-            ]
-        
-        # Get watermark text
-        text_questions = [
-            inquirer.Text(
-                'line1',
-                message='Enter watermark text - Line 1',
-                default=''
-            ),
-            inquirer.Text(
-                'line2',
-                message='Enter watermark text - Line 2',
-                default='',
-                validate=validate_text_input
-            )
-        ]
-        
-        # Combine path and text questions
-        all_questions = path_questions + text_questions
-        answers = inquirer.prompt(all_questions)
-        
-        if not answers:
-            print("\nOperation cancelled by user.")
-            return
-        
-        target_path = answers['target_path']
-        line1 = answers['line1'].strip()
-        line2 = answers['line2'].strip()
+        # Prompt for path via standard input (more robust for paste)
+        target_path = prompt_for_path(processing_mode)
+
+        # Prompt for watermark text using standard input as well
+        # At least one of the two lines must be non-empty
+        while True:
+            line1 = input("[?] Enter watermark text - Line 1 (optional): ").strip()
+            line2 = input("[?] Enter watermark text - Line 2 (optional): ").strip()
+            if line1 or line2:
+                break
+            print("At least one line of text is required. Please try again.\n")
         
         # Process based on mode
         if processing_mode == 'single':

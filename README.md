@@ -1,16 +1,25 @@
 # Video Watermarker
 
-Interactive Python CLI to watermark a single video or all videos in a directory with a centered two-line text watermark at approximately 10% opacity. Output files are saved to `output_videos/` with unique names to avoid overwriting.
+Interactive Python CLI to watermark a single video or all videos in a directory with a centered two-line text watermark at approximately 10% opacity. Output files are saved to `output_videos/` (next to the script) with unique names to avoid overwriting.
+
+## Launchers
+
+- macOS: double‑click `launcher.command`.
+  - If it doesn’t run: right‑click `launcher.command` > Open. If needed, run once in Terminal: `chmod +x launcher.command`.
+  - If macOS warns it’s from the Internet, you can clear quarantine: `xattr -d com.apple.quarantine launcher.command`.
+- Windows: double‑click `launcher.bat` (requires Git for Windows, which provides Git Bash). Download from https://gitforwindows.org/.
+- Linux and power users: run `./launcher.sh` in a terminal.
 
 ## Features
 
 - Interactive command-line interface with path validation
 - Single file or directory batch processing
 - Centered two-line text watermark (~10% opacity)
+- True per‑pixel alpha blending for smoother results
 - Automatic text sizing based on video resolution
 - Non-destructive output naming (`*_watermarked.mp4`, `*_watermarked_copy.mp4`, ...)
 - Supports common video formats (MP4, AVI, MOV, MKV, WebM, etc.)
-- Saves results to `output_videos/`
+- Saves results to `output_videos/` (anchored to the script directory)
 
 ## Requirements
 
@@ -67,5 +76,15 @@ Watermarked video saved as: output_videos/sample_watermarked.mp4
 ## Notes
 
 - The watermark is drawn as centered text; it does not place an opaque box over the video.
-- Effective visibility is light (~10% of white). To make it stronger or lighter, adjust `alpha` in `add_watermark_to_video` and/or the RGBA text alpha in `create_watermark_overlay`.
-- The script attempts to use system fonts (Arial or Helvetica on macOS) and falls back to a default font if unavailable.
+- Blending uses the watermark overlay's per‑pixel alpha. To adjust strength, either change the RGBA alpha used when drawing the text in `create_watermark_overlay` or tweak the `strength` multiplier in `add_watermark_to_video`.
+- The output directory is resolved relative to the script location, so running from any working directory writes to the same `output_videos/` alongside the script.
+- The script attempts to use common system fonts (Arial/Helvetica on macOS, DejaVuSans on Linux, Arial on Windows) and falls back to a default font if unavailable.
+
+### Troubleshooting launchers
+
+- If double‑clicking `launcher.sh` just opens a text editor, use the platform wrappers above:
+  - macOS: `launcher.command`
+  - Windows: `launcher.bat`
+- If a launcher doesn’t run due to permissions, mark it executable:
+  - macOS/Linux: `chmod +x launcher.sh launcher.command`
+- If Windows can’t find Bash, install Git for Windows (Git Bash) or run the app directly with Python: `py -3 video_watermarker.py`.
