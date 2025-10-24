@@ -41,7 +41,7 @@ def validate_directory_path(answers, current):
 
 def process_directory(directory_path, text_line1, text_line2):
     """Process all video files in a directory."""
-    video_extensions = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm", ".m4v"]
+    video_extensions = [".mp4", ".avi", ".mov",".mkv", ".wmv", ".flv", ".webm", ".m4v"]
     video_files = []
 
     # Find all video files in the directory
@@ -62,9 +62,7 @@ def process_directory(directory_path, text_line1, text_line2):
     failed = 0
 
     for i, video_file in enumerate(video_files, 1):
-        print(
-            f"\n--- Processing video {i}/{len(video_files)}: {os.path.basename(video_file)} ---"
-        )
+        print(f"\n--- Processing video {i}/{len(video_files)}: {os.path.basename(video_file)} ---")
         success = add_watermark_to_video(video_file, text_line1, text_line2)
         if success:
             successful += 1
@@ -93,9 +91,7 @@ def get_unique_output_path(base_name):
         if counter == 1:
             copy_path = os.path.join(output_dir, f"{base_name}_watermarked_copy.mp4")
         else:
-            copy_path = os.path.join(
-                output_dir, f"{base_name}_watermarked_copy{counter}.mp4"
-            )
+            copy_path = os.path.join(output_dir, f"{base_name}_watermarked_copy{counter}.mp4")
 
         if not os.path.exists(copy_path):
             return copy_path
@@ -233,9 +229,7 @@ def add_watermark_to_video(video_path, text_line1, text_line2):
         overlay_float = overlay_bgr.astype(np.float32)
         # Blend each color channel using the same alpha mask
         for c in range(3):
-            frame_float[:, :, c] = (
-                frame_float[:, :, c] * (1.0 - mask) + overlay_float[:, :, c] * mask
-            )
+            frame_float[:, :, c] = (frame_float[:, :, c] * (1.0 - mask) +overlay_float[:, :, c] * mask)
         final_frame = np.clip(frame_float, 0, 255).astype(np.uint8)
 
         # Write frame
@@ -256,7 +250,7 @@ def add_watermark_to_video(video_path, text_line1, text_line2):
     return True
 
 
-def _normalize_pasted_path(raw_path: str) -> str:
+def _normalize_pasted_path(raw_path):
     if not isinstance(raw_path, str):
         return ""
     # Trim leading/trailing whitespace
@@ -272,7 +266,7 @@ def _normalize_pasted_path(raw_path: str) -> str:
     return s
 
 
-def prompt_for_path(processing_mode: str) -> str:
+def prompt_for_path(processing_mode):
     """Prompt the user for a path using standard input for robust paste behavior."""
     while True:
         if processing_mode == "single":
