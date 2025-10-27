@@ -71,7 +71,7 @@ try:
     import cv2  # opencv-python
     import PIL  # Pillow
     import numpy  # numpy
-    import inquirer  # inquirer
+    import rich  # rich
 except Exception:
     raise SystemExit(1)
 else:
@@ -117,4 +117,3 @@ case "${TERM_PROGRAM-}${TERM-}" in
     read -r -p $'\nPress Enter to close...' _ || true
     ;;
 esac
-
